@@ -3,11 +3,13 @@ numpy
 yfinance
 scikit-learn
 xgboost
-lightgbm
-catboost
 ta
 joblib
 matplotlib
 requests
 pytrends
 pyarrow
+fastapi
+uvicorn[standard]
+apscheduler
+pandas_market_calendars

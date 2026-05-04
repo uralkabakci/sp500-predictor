@@ -130,27 +130,33 @@ def _predict_prob(pkgs, row):
     return float(np.mean(probs))
 
 
-def _check_outcome(close_series, signal_idx, days, tp_pct, sl_pct):
+def _check_outcome(df, signal_idx, days, tp_pct, sl_pct):
     """
-    Walk forward day-by-day through close prices.
+    Walk forward day-by-day using OHLC.
+    Contested (same-bar TP+SL hit) → stop_loss_hit (pessimistic).
     Returns (exit_date, exit_price, exit_reason) or (None, None, None) if pending.
     """
-    entry  = float(close_series.iloc[signal_idx])
+    entry  = float(df['Close'].iloc[signal_idx])
     target = entry * (1 + tp_pct)
     stop   = entry * (1 - sl_pct)
-    future = close_series.iloc[signal_idx + 1 : signal_idx + 1 + days]
+    future = df.iloc[signal_idx + 1 : signal_idx + 1 + days]
 
     if len(future) == 0:
         return None, None, None
 
-    for date, price in future.items():
-        price = float(price)
-        if price >= target:
+    for date, bar in future.iterrows():
+        hit_tp = float(bar['High']) >= target
+        hit_sl = float(bar['Low'])  <= stop
+
+        if hit_tp and hit_sl:
+            return date, round(stop, 4), "stop_loss_hit"
+        if hit_tp:
             return date, round(target, 4), "target_hit"
-        if price <= stop:
+        if hit_sl:
             return date, round(stop, 4), "stop_loss_hit"
 
-    return future.index[-1], round(float(future.iloc[-1]), 4), "expired"
+    last = future.iloc[-1]
+    return future.index[-1], round(float(last['Close']), 4), "expired"
 
 
 # ── Worker (runs in a subprocess) ────────────────────────────────────────────
@@ -188,7 +194,6 @@ def _worker(args):
             return ticker, trades, agg, baseline
         df = df[df.index >= start - pd.Timedelta(days=60)]
 
-        close_arr = df['Close']
         sim_dates = df.index[(df.index >= start) & (df.index <= end)]
 
         for days in TARGET_DAYS:
@@ -197,8 +202,8 @@ def _worker(args):
 
             # ── Baseline: every trading day, no model ────────────────────
             for date in sim_dates:
-                idx = close_arr.index.get_loc(date)
-                _, _, reason = _check_outcome(close_arr, idx, days, tp_pct, sl_pct)
+                idx = df.index.get_loc(date)
+                _, _, reason = _check_outcome(df, idx, days, tp_pct, sl_pct)
                 if reason is not None:
                     baseline[days]['total'] += 1
                     if reason == 'target_hit':
@@ -208,7 +213,12 @@ def _worker(args):
             if days not in models:
                 continue
 
+            active_signal_end = None
+
             for date in sim_dates:
+                if active_signal_end is not None and date <= active_signal_end:
+                    continue
+
                 pkgs = _get_fold_packages(models, days, date)
                 if not pkgs:
                     continue
@@ -216,11 +226,13 @@ def _worker(args):
                 if prob <= 0.0:
                     continue
 
-                signal_idx  = close_arr.index.get_loc(date)
-                entry_price = round(float(close_arr.iloc[signal_idx]), 4)
+                signal_idx  = df.index.get_loc(date)
+                entry_price = round(float(df['Close'].iloc[signal_idx]), 4)
                 exit_date, exit_price, exit_reason = _check_outcome(
-                    close_arr, signal_idx, days, tp_pct, sl_pct
+                    df, signal_idx, days, tp_pct, sl_pct
                 )
+
+                active_signal_end = exit_date if exit_date is not None else sim_dates[-1]
 
                 agg[days]['signals'] += 1
                 if exit_reason is None:
