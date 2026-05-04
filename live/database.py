@@ -97,12 +97,12 @@ def log_event(level: str, source: str, message: str):
 
 def upsert_signal(ticker, days, prob, entry_price, target_price, stop_loss_price,
                   signal_date, entry_time=None):
-    """Insert a new signal only if no active signal exists for same (ticker, days, signal_date)."""
+    """Insert a new signal only if no active signal exists for same (ticker, days)."""
     conn = get_conn()
     now = datetime.utcnow().isoformat()
     existing = conn.execute(
-        "SELECT id FROM signals WHERE ticker=? AND days=? AND signal_date=? AND status='active'",
-        (ticker, days, signal_date)
+        "SELECT id FROM signals WHERE ticker=? AND days=? AND status='active'",
+        (ticker, days)
     ).fetchone()
     if not existing:
         conn.execute(
