@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Signals</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">Signals<span class="logo-live"> LIVE</span></div>
+    <nav>
+      <button class="tab-btn active" data-tab="signals">Live Signals</button>
+      <button class="tab-btn" data-tab="backtest">Backtest</button>
+      <button class="tab-btn" data-tab="history">History</button>
+      <button class="tab-btn" data-tab="winrates">Win Rates</button>
+    </nav>
+    <div class="header-right">
+      <span id="last-refresh" class="muted">–</span>
+      <button id="btn-refresh" class="btn-primary">↻ Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ═══════════════════ LIVE SIGNALS ═══════════════════ -->
+    <section id="tab-signals" class="tab-content active">
+      <div class="toolbar">
+        <div class="ticker-picker" id="sig-picker">
+          <div class="picker-box" id="sig-picker-box">
+            <div class="picker-tags" id="sig-picker-tags"></div>
+            <input class="picker-search" id="sig-picker-search" type="text" placeholder="Search ticker…" autocomplete="off" />
+            <span class="picker-arrow">▾</span>
+          </div>
+          <div class="picker-dropdown hidden" id="sig-picker-dropdown">
+            <div class="picker-list" id="sig-picker-list"></div>
+          </div>
+        </div>
+        <div class="stat-pills" id="signal-stats"></div>
+      </div>
+      <div class="table-wrap">
+        <table id="tbl-signals">
+          <thead>
+            <tr>
+              <th>Ticker</th>
+              <th>Horizon</th>
+              <th>Entry</th>
+              <th>Target</th>
+              <th>Stop</th>
+              <th>Current</th>
+              <th>P&L%</th>
+              <th>Signal Date</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-signals"><tr><td colspan="8" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════════════════ BACKTEST ═══════════════════ -->
+    <section id="tab-backtest" class="tab-content">
+      <div class="toolbar">
+        <div class="ticker-picker" id="bt-picker">
+          <div class="picker-box" id="bt-picker-box">
+            <div class="picker-tags" id="bt-picker-tags"></div>
+            <input class="picker-search" id="bt-picker-search" type="text" placeholder="Search ticker…" autocomplete="off" />
+            <span class="picker-arrow">▾</span>
+          </div>
+          <div class="picker-dropdown hidden" id="bt-picker-dropdown">
+            <div class="picker-list" id="bt-picker-list"></div>
+          </div>
+        </div>
+        <select id="bt-period" class="select-input">
+          <option value="all">All Time</option>
+          <option value="1y">1 Year</option>
+          <option value="6m">6 Months</option>
+          <option value="3m">3 Months</option>
+          <option value="1m" selected>1 Month</option>
+        </select>
+        <div class="filter-group">
+          <span class="filter-label">Horizon:</span>
+          <button class="filter-btn active" data-bt-horizon="10">2W</button>
+          <button class="filter-btn active" data-bt-horizon="15">3W</button>
+          <button class="filter-btn active" data-bt-horizon="20">4W</button>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Reason:</span>
+          <button class="filter-btn active" data-bt-reason="target_hit">Target Hit</button>
+          <button class="filter-btn active" data-bt-reason="stop_loss_hit">Stop Loss</button>
+          <button class="filter-btn active" data-bt-reason="expired">Expired</button>
+        </div>
+        <div class="stat-pills" id="bt-stats"></div>
+      </div>
+      <div id="bt-analytics"></div>
+      <div class="table-wrap">
+        <table id="tbl-backtest">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="date">Date / Time</th>
+              <th class="sortable" data-sort="ticker">Ticker</th>
+              <th>Type</th>
+              <th class="sortable" data-sort="horizon">Horizon</th>
+              <th class="sortable" data-sort="tppct">TP%</th>
+              <th class="sortable" data-sort="entry">Entry $</th>
+              <th class="sortable" data-sort="target">Target $</th>
+              <th class="sortable" data-sort="stop">Stop $</th>
+              <th class="sortable" data-sort="exit">Exit $</th>
+              <th class="sortable" data-sort="pnl">P&amp;L%</th>
+              <th class="sortable" data-sort="reason">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-backtest"><tr><td colspan="11" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════════════════ HISTORY ═══════════════════ -->
+    <section id="tab-history" class="tab-content">
+      <div class="toolbar">
+        <div class="ticker-picker" id="hist-picker">
+          <div class="picker-box" id="hist-picker-box">
+            <div class="picker-tags" id="hist-picker-tags"></div>
+            <input class="picker-search" id="hist-picker-search" type="text" placeholder="Search ticker…" autocomplete="off" />
+            <span class="picker-arrow">▾</span>
+          </div>
+          <div class="picker-dropdown hidden" id="hist-picker-dropdown">
+            <div class="picker-list" id="hist-picker-list"></div>
+          </div>
+        </div>
+        <select id="hist-period" class="select-input">
+          <option value="24h">24 Hours</option>
+          <option value="1w">1 Week</option>
+          <option value="1m" selected>1 Month</option>
+          <option value="3m">3 Months</option>
+          <option value="6m">6 Months</option>
+          <option value="1y">1 Year</option>
+          <option value="all">All Time</option>
+        </select>
+        <button id="btn-hist-search" class="btn-primary">Search</button>
+      </div>
+      <div id="hist-analytics"></div>
+      <div class="table-wrap">
+        <table id="tbl-history">
+          <thead>
+            <tr>
+              <th class="sortable" data-sort="date">Date / Time</th>
+              <th class="sortable" data-sort="ticker">Ticker</th>
+              <th>Type</th>
+              <th class="sortable" data-sort="horizon">Horizon</th>
+              <th class="sortable" data-sort="tppct">TP%</th>
+              <th class="sortable" data-sort="entry">Entry $</th>
+              <th class="sortable" data-sort="target">Target $</th>
+              <th class="sortable" data-sort="stop">Stop $</th>
+              <th class="sortable" data-sort="exit">Exit $</th>
+              <th class="sortable" data-sort="pnl">P&amp;L%</th>
+              <th class="sortable" data-sort="reason">Reason</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-history"><tr><td colspan="11" class="muted center">Loading…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══════════════════ WIN RATES ═══════════════════ -->
+    <section id="tab-winrates" class="tab-content">
+      <div class="wr-grid">
+
+        <div class="wr-card">
+          <div class="wr-card-header">
+            <h3>Live Signals Win Rate</h3>
+            <select id="wr-period" class="select-input">
+              <option value="null">All Time</option>
+              <option value="365">1 Year</option>
+              <option value="180">6 Months</option>
+              <option value="90">3 Months</option>
+              <option value="30" selected>1 Month</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Ticker</th><th>Trades</th><th>Wins</th><th>Win Rate</th></tr></thead>
+              <tbody id="tbody-wr-live"><tr><td colspan="4" class="muted center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="wr-card">
+          <div class="wr-card-header">
+            <h3>Backtest Win Rate</h3>
+            <select id="wr-bt-period" class="select-input">
+              <option value="null">All Time</option>
+              <option value="365">1 Year</option>
+              <option value="180">6 Months</option>
+              <option value="90">3 Months</option>
+              <option value="30" selected>1 Month</option>
+            </select>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Ticker</th><th>Trades</th><th>Wins</th><th>Win Rate</th></tr></thead>
+              <tbody id="tbody-wr-bt"><tr><td colspan="4" class="muted center">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ═══════════════════ LOGS ═══════════════════ -->
+    <section id="tab-logs" class="tab-content">
+      <div class="toolbar">
+        <select id="log-level" class="select-input">
+          <option value="">All Levels</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <button id="btn-logs-refresh" class="btn-primary">↻</button>
+      </div>
+      <div class="log-container" id="log-container">Loading…</div>
+    </section>
+  </main>
+
+  <script>
+  (() => {
+    // ── Tab switching ──────────────────────────────────────────────────────
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(s => s.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+        if (btn.dataset.tab === 'winrates') { loadWinRates(); loadBtWinRates(); }
+      });
+    });
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    const fmt$   = v => v != null ? '$' + parseFloat(v).toFixed(2) : '–';
+    const fmtPct = v => v != null ? (v > 0 ? '+' : '') + parseFloat(v).toFixed(2) + '%' : '–';
+    const fmtDate = s => s ? s.slice(0, 10) : '–';
+    const fmtDateTime = s => {
+      if (!s) return '–';
+      const d = s.slice(0, 10);
+      const t = s.slice(11, 16);
+      return t ? `${d} ${t}` : d;
+    };
+    const fmtHorizon = d => ({ 10: '2 Weeks', 15: '3 Weeks', 20: '4 Weeks' }[d] || `${d}d`);
+    const fmtReason  = r => ({ target_hit: 'Target Hit', stop_loss_hit: 'Stop Loss', expired: 'Expired' }[r] || r || '–');
+    function _wrCell(w, t) {
+      if (!t) return `<td class="center"><span class="muted">–</span></td>`;
+      const p   = Math.round(w / t * 100);
+      const cls = p >= 60 ? 'green' : p < 40 ? 'red' : '';
+      return `<td class="center"><span class="${cls}"><strong>${p}%</strong></span>&thinsp;<span class="muted" style="font-size:10px">${w}/${t}</span></td>`;
+    }
+    function pill(label, value, cls) {
+      return `<span class="pill ${cls || ''}">${label}: <strong>${value}</strong></span>`;
+    }
+
+    // ── Ticker Picker ──────────────────────────────────────────────────────
+    let ALL_TICKERS = [];
+    fetch('/api/tickers').then(r => r.json()).then(data => {
+      ALL_TICKERS = data;
+      initPicker('sig',  () => loadSignals());
+      initPicker('bt',   () => btFilterSort());
+      initPicker('hist', () => {});
+    });
+
+    function initPicker(prefix, onChange) {
+      const box      = document.getElementById(`${prefix}-picker-box`);
+      const dropdown = document.getElementById(`${prefix}-picker-dropdown`);
+      const list     = document.getElementById(`${prefix}-picker-list`);
+      const tagsEl   = document.getElementById(`${prefix}-picker-tags`);
+      const search   = document.getElementById(`${prefix}-picker-search`);
+      const selected = new Set();
+
+      function renderTags() {
+        tagsEl.innerHTML = [...selected].map(t =>
+          `<span class="tag">${t}<button class="tag-x" data-t="${t}">×</button></span>`
+        ).join('');
+        tagsEl.querySelectorAll('.tag-x').forEach(b => {
+          b.addEventListener('click', e => {
+            e.stopPropagation();
+            selected.delete(b.dataset.t);
+            renderTags(); renderList(); onChange();
+          });
+        });
+      }
+
+      function renderList() {
+        const q = search.value.trim().toUpperCase();
+        const filtered = ALL_TICKERS.filter(t => !q || t.includes(q));
+        list.innerHTML = filtered.map(t => `
+          <label class="picker-item ${selected.has(t) ? 'checked' : ''}">
+            <input type="checkbox" value="${t}" ${selected.has(t) ? 'checked' : ''} />
+            ${t}
+          </label>`).join('');
+        list.querySelectorAll('input[type=checkbox]').forEach(cb => {
+          cb.addEventListener('change', () => {
+            if (cb.checked) selected.add(cb.value);
+            else selected.delete(cb.value);
+            renderTags(); renderList(); onChange();
+          });
+        });
+      }
+
+      box.addEventListener('click', () => {
+        dropdown.classList.toggle('hidden');
+        if (!dropdown.classList.contains('hidden')) {
+          search.focus(); renderList();
+        }
+      });
+      search.addEventListener('click', e => e.stopPropagation());
+      search.addEventListener('input', renderList);
+      document.addEventListener('click', e => {
+        if (!document.getElementById(`${prefix}-picker`).contains(e.target))
+          dropdown.classList.add('hidden');
+      });
+
+      // expose getter
+      window[`_get${prefix.charAt(0).toUpperCase()+prefix.slice(1)}Tickers`] = () => [...selected];
+    }
+
+    const getSigTickers  = () => window._getSigTickers  ? window._getSigTickers()  : [];
+    const getBtTickers   = () => window._getBtTickers   ? window._getBtTickers()   : [];
+    const getHistTickers = () => window._getHistTickers ? window._getHistTickers() : [];
+
+    // ── Live Signals ───────────────────────────────────────────────────────
+    async function loadSignals() {
+      const tickers = getSigTickers();
+      const res  = await fetch('/api/signals');
+      const data = await res.json();
+      const filtered = tickers.length ? data.filter(s => tickers.includes(s.ticker)) : data;
+
+      const tbody = document.getElementById('tbody-signals');
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="muted center">No active signals</td></tr>';
+      } else {
+        tbody.innerHTML = filtered.map(s => {
+          const pnlCls = s.pnl_pct == null ? '' : (s.pnl_pct >= 0 ? 'green' : 'red');
+          return `<tr>
+            <td><strong>${s.ticker}</strong></td>
+            <td>${fmtHorizon(s.days)}</td>
+            <td>${fmt$(s.entry_price)}</td>
+            <td>${fmt$(s.target_price)}</td>
+            <td class="red">${fmt$(s.stop_loss_price)}</td>
+            <td>${fmt$(s.current_price)}</td>
+            <td class="${pnlCls}">${fmtPct(s.pnl_pct)}</td>
+            <td>${fmtDate(s.signal_date)}</td>
+          </tr>`;
+        }).join('');
+      }
+
+      const tSet = new Set(data.map(s => s.ticker));
+      document.getElementById('signal-stats').innerHTML =
+        pill('Active', data.length) + pill('Tickers', tSet.size, 'blue');
+      document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    }
+
+    // ── Backtest ───────────────────────────────────────────────────────────
+    const BT_TP = {10: 0.04, 15: 0.05, 20: 0.07};
+    const BT_SL = {10: 0.02, 15: 0.02, 20: 0.02};
+
+    let btData     = [];
+    let btSortCol  = 'date', btSortDir = -1;
+    let btHorizons = new Set([10, 15, 20]);
+    let btReasons  = new Set(['target_hit', 'stop_loss_hit', 'expired']);
+    let btWrFilter  = '';
+    let btWrSortCol = 'tot', btWrSortDir = -1;
+
+    document.querySelectorAll('[data-bt-horizon]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const h = parseInt(btn.dataset.btHorizon);
+        if (btHorizons.has(h)) { btHorizons.delete(h); btn.classList.remove('active'); }
+        else                   { btHorizons.add(h);    btn.classList.add('active');    }
+        btFilterSort();
+      });
+    });
+    document.querySelectorAll('[data-bt-reason]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const r = btn.dataset.btReason;
+        if (btReasons.has(r)) { btReasons.delete(r); btn.classList.remove('active'); }
+        else                  { btReasons.add(r);    btn.classList.add('active');    }
+        btFilterSort();
+      });
+    });
+    document.querySelectorAll('#tbl-backtest th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        btSortDir = btSortCol === col ? -btSortDir : 1;
+        btSortCol = col;
+        btFilterSort();
+      });
+    });
+
+    function btGetVal(t, col) {
+      switch (col) {
+        case 'date':    return t.entry_date || '';
+        case 'ticker':  return t.ticker || '';
+        case 'horizon': return t.days || 0;
+        case 'tppct':   return BT_TP[t.days] || 0;
+        case 'entry':   return t.entry_price || 0;
+        case 'target':  return (t.entry_price || 0) * (1 + (BT_TP[t.days] || 0));
+        case 'stop':    return (t.entry_price || 0) * (1 - (BT_SL[t.days] || 0));
+        case 'exit':    return t.exit_price || 0;
+        case 'pnl':     return parseFloat(t.pnl_pct) || 0;
+        case 'reason':  return t.exit_reason || '';
+        default:        return 0;
+      }
+    }
+
+    function btFilterSort() {
+      const selTickers = getBtTickers();
+      let filtered = btData;
+      if (selTickers.length) filtered = filtered.filter(t => selTickers.includes(t.ticker));
+      filtered = filtered.filter(t => btHorizons.has(t.days));
+      filtered = filtered.filter(t => btReasons.has(t.exit_reason));
+      if (btSortCol) {
+        filtered = [...filtered].sort((a, b) => {
+          const va = btGetVal(a, btSortCol), vb = btGetVal(b, btSortCol);
+          return btSortDir * (va < vb ? -1 : va > vb ? 1 : 0);
+        });
+      }
+      renderBtTable(filtered);
+      renderBtAnalytics(filtered);
+      document.querySelectorAll('#tbl-backtest th.sortable').forEach(h => {
+        h.classList.remove('sort-asc', 'sort-desc');
+        if (h.dataset.sort === btSortCol)
+          h.classList.add(btSortDir === 1 ? 'sort-asc' : 'sort-desc');
+      });
+    }
+
+    function renderBtTable(trades) {
+      const tbody = document.getElementById('tbody-backtest');
+      if (!trades.length) {
+        tbody.innerHTML = '<tr><td colspan="11" class="muted center">No trades found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = trades.map((t, idx) => {
+        const isLast    = idx === trades.length - 1;
+        const pairEnd   = isLast ? 'row-pair-end' : '';
+        const tp        = BT_TP[t.days] || 0;
+        const sl        = BT_SL[t.days] || 0;
+        const tpPct     = '+' + (tp * 100).toFixed(1) + '%';
+        const targetPx  = t.entry_price ? t.entry_price * (1 + tp) : null;
+        const stopPx    = t.entry_price ? t.entry_price * (1 - sl) : null;
+        const pnlP      = t.pnl_pct != null ? parseFloat(t.pnl_pct) : null;
+        const isWin     = pnlP != null && pnlP > 0;
+        const sellCls   = isWin ? 'row-sell-win' : 'row-sell-loss';
+        const sellBadge = isWin ? 'badge-sell-win' : 'badge-sell-loss';
+        const pnlCls    = pnlP == null ? '' : (isWin ? 'green' : 'red');
+
+        const buyRow = `<tr class="row-buy">
+          <td class="muted">${fmtDate(t.entry_date)}</td>
+          <td><strong>${t.ticker}</strong></td>
+          <td><span class="badge badge-buy">BUY</span></td>
+          <td>${fmtHorizon(t.days)}</td>
+          <td>${tpPct}</td>
+          <td>${fmt$(t.entry_price)}</td>
+          <td>${fmt$(targetPx)}</td>
+          <td class="red">${fmt$(stopPx)}</td>
+          <td class="muted">–</td>
+          <td class="muted">–</td>
+          <td class="muted">–</td>
+        </tr>`;
+
+        const sellRow = `<tr class="${sellCls} ${pairEnd}">
+          <td class="muted">${fmtDate(t.exit_date)}</td>
+          <td><strong>${t.ticker}</strong></td>
+          <td><span class="badge ${sellBadge}">SELL</span></td>
+          <td>${fmtHorizon(t.days)}</td>
+          <td>${tpPct}</td>
+          <td>${fmt$(t.entry_price)}</td>
+          <td>${fmt$(targetPx)}</td>
+          <td class="red">${fmt$(stopPx)}</td>
+          <td>${fmt$(t.exit_price)}</td>
+          <td class="${pnlCls}">${fmtPct(pnlP)}</td>
+          <td><span class="badge ${isWin ? 'badge-win' : 'badge-loss'}">${fmtReason(t.exit_reason)}</span></td>
+        </tr>`;
+
+        return buyRow + sellRow;
+      }).join('');
+    }
+
+    async function loadBacktest() {
+      const period = document.getElementById('bt-period').value;
+      const params = new URLSearchParams({ period });
+
+      const res  = await fetch('/api/backtest?' + params);
+      const data = await res.json();
+
+      if (data.error) {
+        document.getElementById('tbody-backtest').innerHTML =
+          `<tr><td colspan="11" class="muted center">${data.error}</td></tr>`;
+        return;
+      }
+
+      btData = Array.isArray(data) ? data : [];
+      btFilterSort();
+
+      const sr    = await fetch('/api/backtest/stats');
+      const stats = await sr.json();
+      if (!stats.error) {
+        document.getElementById('bt-stats').innerHTML =
+          pill('Trades', stats.total_trades) +
+          pill('Win Rate', stats.win_rate_pct + '%', stats.win_rate_pct >= 60 ? 'green' : 'orange') +
+          pill('Total P&L', '$' + stats.total_pnl, stats.total_pnl >= 0 ? 'green' : 'red');
+      }
+    }
+
+    document.getElementById('bt-period').addEventListener('change', loadBacktest);
+
+    // ── History ────────────────────────────────────────────────────────────
+    let histData    = [];
+    let histSortCol = 'date', histSortDir = -1;
+
+    document.querySelectorAll('#tbl-history th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        histSortDir = histSortCol === col ? -histSortDir : 1;
+        histSortCol = col;
+        histApplySort();
+      });
+    });
+
+    function histGetVal(s, col) {
+      switch (col) {
+        case 'date':    return s.entry_time || s.signal_date || '';
+        case 'ticker':  return s.ticker || '';
+        case 'horizon': return s.days || 0;
+        case 'tppct':   return (s.entry_price && s.target_price)
+                          ? (s.target_price - s.entry_price) / s.entry_price : 0;
+        case 'entry':   return s.entry_price || 0;
+        case 'target':  return s.target_price || 0;
+        case 'stop':    return s.stop_loss_price || 0;
+        case 'exit':    return s.exit_price || 0;
+        case 'pnl':     return (s.entry_price && s.exit_price)
+                          ? (s.exit_price - s.entry_price) / s.entry_price : 0;
+        case 'reason':  return s.exit_reason || '';
+        default:        return 0;
+      }
+    }
+
+    function histApplySort() {
+      let sorted = [...histData];
+      if (histSortCol) {
+        sorted.sort((a, b) => {
+          const va = histGetVal(a, histSortCol), vb = histGetVal(b, histSortCol);
+          return histSortDir * (va < vb ? -1 : va > vb ? 1 : 0);
+        });
+      }
+      renderHistTable(sorted);
+      document.querySelectorAll('#tbl-history th.sortable').forEach(h => {
+        h.classList.remove('sort-asc', 'sort-desc');
+        if (h.dataset.sort === histSortCol)
+          h.classList.add(histSortDir === 1 ? 'sort-asc' : 'sort-desc');
+      });
+    }
+
+    function renderHistTable(data) {
+      const tbody = document.getElementById('tbody-history');
+      if (!data.length) {
+        tbody.innerHTML = '<tr><td colspan="11" class="muted center">No closed signals</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.map((s, idx) => {
+        const isLast    = idx === data.length - 1;
+        const pairEnd   = isLast ? 'row-pair-end' : '';
+        const tpPct     = (s.entry_price && s.target_price)
+          ? '+' + ((s.target_price - s.entry_price) / s.entry_price * 100).toFixed(1) + '%'
+          : '–';
+        const pnlVal    = (s.entry_price && s.exit_price)
+          ? (s.exit_price - s.entry_price) / s.entry_price * 100
+          : null;
+        const isWin     = pnlVal != null && pnlVal > 0;
+        const sellCls   = isWin ? 'row-sell-win' : 'row-sell-loss';
+        const sellBadge = isWin ? 'badge-sell-win' : 'badge-sell-loss';
+        const pnlCls    = pnlVal == null ? '' : (isWin ? 'green' : 'red');
+
+        const buyRow = `<tr class="row-buy">
+          <td class="muted">${fmtDateTime(s.entry_time || s.signal_date)}</td>
+          <td><strong>${s.ticker}</strong></td>
+          <td><span class="badge badge-buy">BUY</span></td>
+          <td>${fmtHorizon(s.days)}</td>
+          <td>${tpPct}</td>
+          <td>${fmt$(s.entry_price)}</td>
+          <td>${fmt$(s.target_price)}</td>
+          <td class="red">${fmt$(s.stop_loss_price)}</td>
+          <td class="muted">–</td>
+          <td class="muted">–</td>
+          <td class="muted">–</td>
+        </tr>`;
+
+        const sellRow = `<tr class="${sellCls} ${pairEnd}">
+          <td class="muted">${fmtDateTime(s.exit_date)}</td>
+          <td><strong>${s.ticker}</strong></td>
+          <td><span class="badge ${sellBadge}">SELL</span></td>
+          <td>${fmtHorizon(s.days)}</td>
+          <td>${tpPct}</td>
+          <td>${fmt$(s.entry_price)}</td>
+          <td>${fmt$(s.target_price)}</td>
+          <td class="red">${fmt$(s.stop_loss_price)}</td>
+          <td>${fmt$(s.exit_price)}</td>
+          <td class="${pnlCls}">${fmtPct(pnlVal)}</td>
+          <td><span class="badge ${isWin ? 'badge-win' : 'badge-loss'}">${fmtReason(s.exit_reason)}</span></td>
+        </tr>`;
+
+        return buyRow + sellRow;
+      }).join('');
+    }
+
+    async function loadHistory() {
+      const tickers = getHistTickers();
+      const period  = document.getElementById('hist-period').value;
+      const params  = new URLSearchParams({ period });
+      if (tickers.length) params.set('tickers', tickers.join(','));
+
+      const res  = await fetch('/api/history?' + params);
+      const data = await res.json();
+
+      if (!data.length) {
+        document.getElementById('tbody-history').innerHTML =
+          '<tr><td colspan="11" class="muted center">No closed signals</td></tr>';
+        renderHistAnalytics([]);
+        return;
+      }
+
+      histData = data;
+      histApplySort();
+      renderHistAnalytics(data);
+    }
+
+    document.getElementById('btn-hist-search').addEventListener('click', loadHistory);
+    document.getElementById('hist-period').addEventListener('change', loadHistory);
+
+    // ── Backtest Win Rate Analytics ────────────────────────────────────────
+    function renderBtAnalytics(trades) {
+      const el = document.getElementById('bt-analytics');
+      if (!el) return;
+      if (!trades.length) { el.innerHTML = ''; return; }
+
+      const HORIZONS = [10, 15, 20];
+      const isWin    = t => (parseFloat(t.pnl_pct) || 0) > 0;
+      const getYear  = t => (t.entry_date || '').slice(0, 4);
+      const years    = [...new Set(trades.map(getYear))].filter(Boolean).sort();
+
+      // Summary matrix: rows = Overall + each year, cols = horizons + total
+      const sumMat = { _all: {} };
+      for (const y of years) sumMat[y] = {};
+      for (const key of [...years, '_all'])
+        for (const d of [...HORIZONS, 'tot']) sumMat[key][d] = {w:0, t:0};
+
+      for (const tr of trades) {
+        const y = getYear(tr), d = tr.days, win = isWin(tr);
+        const inc = o => { if (o) { o.t++; if (win) o.w++; } };
+        inc(sumMat._all[d]); inc(sumMat._all.tot);
+        if (sumMat[y]) { inc(sumMat[y][d]); inc(sumMat[y].tot); }
+      }
+
+      const matRows = [['Overall', '_all'], ...years.map(y => [y, y])].map(([lbl, key]) => {
+        const r = sumMat[key];
+        return `<tr><td><strong>${lbl}</strong></td>${HORIZONS.map(d => _wrCell(r[d]?.w||0, r[d]?.t||0)).join('')}${_wrCell(r.tot.w, r.tot.t)}</tr>`;
+      }).join('');
+
+      // Per-ticker aggregated table (search + sort support)
+      const tm = {};
+      for (const tr of trades) {
+        const tic = tr.ticker, d = tr.days, win = isWin(tr);
+        if (!tm[tic]) tm[tic] = { 10:{w:0,t:0}, 15:{w:0,t:0}, 20:{w:0,t:0}, tot:{w:0,t:0} };
+        tm[tic][d].t++; tm[tic].tot.t++;
+        if (win) { tm[tic][d].w++; tm[tic].tot.w++; }
+      }
+
+      const wrRate = o => o && o.t > 0 ? o.w / o.t : -1;
+      const q = btWrFilter.toLowerCase();
+      let tickers = Object.keys(tm).filter(t => !q || t.toLowerCase().includes(q));
+      tickers.sort((a, b) => {
+        let va, vb;
+        if (btWrSortCol === 'ticker') { va = a; vb = b; }
+        else {
+          const dk = parseInt(btWrSortCol) || btWrSortCol;
+          va = wrRate(tm[a][dk]); vb = wrRate(tm[b][dk]);
+        }
+        return btWrSortDir * (va < vb ? -1 : va > vb ? 1 : 0);
+      });
+
+      const sCls = col => btWrSortCol === col ? (btWrSortDir === 1 ? 'sort-asc' : 'sort-desc') : '';
+
+      const ticRows = tickers.map(tic => {
+        const r = tm[tic];
+        return `<tr><td><strong>${tic}</strong></td>${HORIZONS.map(d => _wrCell(r[d]?.w||0, r[d]?.t||0)).join('')}${_wrCell(r.tot.w, r.tot.t)}</tr>`;
+      }).join('');
+
+      el.innerHTML = `
+        <div class="wr-grid" style="margin-bottom:16px;">
+          <div class="wr-card">
+            <div class="wr-card-header"><h3>Win Rate by Year &amp; Horizon</h3></div>
+            <div class="table-wrap"><table>
+              <thead><tr><th></th>${HORIZONS.map(d => `<th>${fmtHorizon(d)}</th>`).join('')}<th>Total</th></tr></thead>
+              <tbody>${matRows}</tbody>
+            </table></div>
+          </div>
+          <div class="wr-card">
+            <div class="wr-card-header">
+              <h3>Win Rate by Ticker</h3>
+              <input class="search-input" id="bt-wr-search" type="text" placeholder="Filter ticker…" value="${btWrFilter.replace(/"/g,'&quot;')}" style="width:140px;" />
+            </div>
+            <div class="table-wrap" style="max-height:260px;overflow-y:auto;"><table>
+              <thead><tr>
+                <th class="sortable bt-wr-th ${sCls('ticker')}" data-sort="ticker">Ticker</th>
+                <th class="sortable bt-wr-th ${sCls('10')}" data-sort="10">2W</th>
+                <th class="sortable bt-wr-th ${sCls('15')}" data-sort="15">3W</th>
+                <th class="sortable bt-wr-th ${sCls('20')}" data-sort="20">4W</th>
+                <th class="sortable bt-wr-th ${sCls('tot')}" data-sort="tot">Total</th>
+              </tr></thead>
+              <tbody>${ticRows}</tbody>
+            </table></div>
+          </div>
+        </div>`;
+
+      const wrSearch = el.querySelector('#bt-wr-search');
+      if (wrSearch) {
+        wrSearch.addEventListener('input', () => { btWrFilter = wrSearch.value; btFilterSort(); });
+      }
+      el.querySelectorAll('.bt-wr-th').forEach(th => {
+        th.addEventListener('click', () => {
+          const col = th.dataset.sort;
+          btWrSortDir = btWrSortCol === col ? -btWrSortDir : -1;
+          btWrSortCol = col;
+          btFilterSort();
+        });
+      });
+    }
+
+    // ── History Win Rate Analytics ─────────────────────────────────────────
+    function renderHistAnalytics(trades) {
+      const el = document.getElementById('hist-analytics');
+      if (!el) return;
+      if (!trades.length) { el.innerHTML = ''; return; }
+
+      const HORIZONS = [10, 15, 20];
+      const isWin    = t => t.exit_reason === 'target_hit';
+
+      const tm    = {};
+      const total = Object.fromEntries([...HORIZONS, 'tot'].map(k => [k, {w:0,t:0}]));
+
+      for (const tr of trades) {
+        const tic = tr.ticker, d = tr.days, win = isWin(tr);
+        if (!tm[tic]) tm[tic] = Object.fromEntries([...HORIZONS, 'tot'].map(k => [k, {w:0,t:0}]));
+        if (!tm[tic][d]) tm[tic][d] = {w:0,t:0};
+        tm[tic][d].t++; tm[tic].tot.t++;
+        total[d].t++; total.tot.t++;
+        if (win) { tm[tic][d].w++; tm[tic].tot.w++; total[d].w++; total.tot.w++; }
+      }
+
+      const tickers  = Object.keys(tm).sort();
+      const dataRows = tickers.map(tic => {
+        const r = tm[tic];
+        return `<tr><td><strong>${tic}</strong></td>${HORIZONS.map(d => _wrCell(r[d]?.w||0, r[d]?.t||0)).join('')}${_wrCell(r.tot.w, r.tot.t)}</tr>`;
+      }).join('');
+      const totalRow = `<tr class="wr-total-row"><td><strong>TOTAL</strong></td>${HORIZONS.map(d => _wrCell(total[d].w, total[d].t)).join('')}${_wrCell(total.tot.w, total.tot.t)}</tr>`;
+
+      el.innerHTML = `
+        <div class="wr-card" style="margin-bottom:16px;">
+          <div class="wr-card-header"><h3>Win Rate by Ticker &amp; Horizon</h3></div>
+          <div class="table-wrap" style="max-height:320px;overflow-y:auto;"><table>
+            <thead><tr>
+              <th>Ticker</th>
+              ${HORIZONS.map(d => `<th>${fmtHorizon(d)}</th>`).join('')}
+              <th>Total</th>
+            </tr></thead>
+            <tbody>${dataRows}${totalRow}</tbody>
+          </table></div>
+        </div>`;
+    }
+
+    // ── Win Rates ──────────────────────────────────────────────────────────
+    function renderWrTable(tbodyId, rows) {
+      const tbody = document.getElementById(tbodyId);
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="muted center">No data</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(r => {
+        const isTotal = r.ticker === 'TOTAL';
+        const cls = r.win_rate >= 60 ? 'green' : r.win_rate >= 40 ? '' : 'red';
+        return `<tr class="${isTotal ? 'wr-total-row' : ''}">
+          <td><strong>${r.ticker}</strong></td>
+          <td>${r.total}</td>
+          <td>${r.wins}</td>
+          <td class="${cls}"><strong>${r.win_rate}%</strong></td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function loadWinRates() {
+      const period = document.getElementById('wr-period').value;
+      const params = period !== 'null' ? `?since_days=${period}` : '';
+      const res  = await fetch('/api/winrates' + params);
+      const data = await res.json();
+      renderWrTable('tbody-wr-live', data);
+    }
+
+    async function loadBtWinRates() {
+      const period = document.getElementById('wr-bt-period').value;
+      const params = period !== 'null' ? `?since_days=${period}` : '';
+      const res  = await fetch('/api/backtest/winrates' + params);
+      const data = await res.json();
+      if (data.error) {
+        document.getElementById('tbody-wr-bt').innerHTML =
+          `<tr><td colspan="4" class="muted center">${data.error}</td></tr>`;
+        return;
+      }
+      renderWrTable('tbody-wr-bt', data);
+    }
+
+    document.getElementById('wr-period').addEventListener('change', loadWinRates);
+    document.getElementById('wr-bt-period').addEventListener('change', loadBtWinRates);
+
+    // ── Logs ───────────────────────────────────────────────────────────────
+    async function loadLogs() {
+      const level = document.getElementById('log-level').value;
+      const res  = await fetch('/api/logs?limit=500');
+      const data = await res.json();
+      const filtered = level ? data.filter(l => l.level === level) : data;
+      const container = document.getElementById('log-container');
+      if (!filtered.length) { container.textContent = 'No logs.'; return; }
+      container.innerHTML = filtered.map(l => {
+        const cls = l.level==='ERROR'?'log-error':l.level==='WARN'?'log-warn':'log-info';
+        return `<div class="log-line ${cls}">[${l.created_at.slice(0,19)}] [${l.level}] [${l.source}] ${l.message}</div>`;
+      }).join('');
+    }
+
+    document.getElementById('log-level').addEventListener('change', loadLogs);
+    document.getElementById('btn-logs-refresh').addEventListener('click', loadLogs);
+
+    // ── Refresh button ─────────────────────────────────────────────────────
+    document.getElementById('btn-refresh').addEventListener('click', async () => {
+      document.getElementById('btn-refresh').textContent = '…';
+      await fetch('/api/refresh', { method: 'POST' });
+      document.getElementById('btn-refresh').textContent = '↻ Refresh';
+      setTimeout(loadSignals, 3000);
+    });
+
+    // ── Auto-poll ──────────────────────────────────────────────────────────
+    loadSignals(); loadBacktest(); loadHistory(); loadLogs();
+    async function _smartPoll() {
+      const res  = await fetch('/api/logs?limit=3');
+      const logs = await res.json();
+      const last = logs[0]?.message || '';
+      if (last.includes('started') && !last.includes('done')) {
+        loadSignals(); loadLogs();
+      }
+    }
+    setInterval(_smartPoll, 5000);
+    setInterval(loadSignals, 15 * 60 * 1000);
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+pandas
+numpy
+yfinance
+scikit-learn
+xgboost
+lightgbm
+catboost
+ta
+joblib
+matplotlib
+requests
+pytrends
+pyarrow

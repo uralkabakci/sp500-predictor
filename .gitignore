@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+venv/
+.venv/
+
+# Data & Models (too large for git)
+data_cache/
+saved_models/
+logs/
+
+# params_log: include report_selected.csv, exclude large candidate JSONs
+params_log/candidates_*.json
+
+# Database
+*.db
+*.sqlite
+
+# Output files
+simulation_trades_*.csv
+signal_analysis_trades.csv
+simulation_plots/
+
+# OS
+.DS_Store
+Thumbs.db
