@@ -6,8 +6,7 @@ __pycache__/
 venv/
 .venv/
 
-# Data & Models (too large for git)
-data_cache/
+# Models (generated locally)
 saved_models/
 logs/
 
