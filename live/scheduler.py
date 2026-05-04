@@ -58,7 +58,8 @@ def refresh_signals():
                 entry_time=sig.get("entry_time"),
             )
 
-        signals = predictor.get_latest_signals(log_fn=db.log_event, signal_fn=_save_signal)
+        blocked = db.get_stoploss_cooldown_blocked(predictor.STOPLOSS_COOLDOWN)
+        signals = predictor.get_latest_signals(log_fn=db.log_event, signal_fn=_save_signal, blocked=blocked)
 
         # Reuse OHLC already fetched inside get_latest_signals — no second API call
         live_ohlc = predictor._live_ohlc_ref

@@ -184,7 +184,10 @@ def get_current_ohlc(tickers=None):
     return result
 
 
-def get_latest_signals(log_fn=None, signal_fn=None):
+STOPLOSS_COOLDOWN = {10: 1, 15: 2, 20: 3}
+
+
+def get_latest_signals(log_fn=None, signal_fn=None, blocked=None):
     """
     Returns list of dicts: {ticker, days, prob, entry_price, target_price, signal_date}
     Uses today's latest data row. Runs for all TICKERS.
@@ -192,6 +195,8 @@ def get_latest_signals(log_fn=None, signal_fn=None):
     import time
     signals = []
     total   = len(TICKERS)
+
+    blocked = blocked or set()
 
     # Fetch 30-min OHLC for all tickers upfront
     if log_fn:
@@ -223,6 +228,8 @@ def get_latest_signals(log_fn=None, signal_fn=None):
             entry_price = (bar["close"] if bar else None) or float(df['Close'].iloc[-1])
 
             for days in TARGET_DAYS:
+                if (ticker, days) in blocked:
+                    continue
                 pkgs = _get_fold_packages(models, days, last_date)
                 if not pkgs:
                     continue

@@ -245,3 +245,25 @@ def get_price_cache():
     rows = conn.execute("SELECT * FROM price_cache").fetchall()
     conn.close()
     return {r["ticker"]: r["price"] for r in rows}
+
+
+def get_stoploss_cooldown_blocked(cooldown_days: dict) -> set:
+    """
+    Returns a set of (ticker, days) pairs that are in stop-loss cooldown.
+    cooldown_days: {days: n_calendar_days_cooldown}
+    """
+    from datetime import date, timedelta
+    conn    = get_conn()
+    blocked = set()
+    today   = date.today()
+    for days, n in cooldown_days.items():
+        cutoff = (today - timedelta(days=n)).isoformat()
+        rows = conn.execute(
+            """SELECT DISTINCT ticker FROM signals
+               WHERE days=? AND exit_reason='stop_loss_hit' AND exit_date >= ?""",
+            (days, cutoff)
+        ).fetchall()
+        for r in rows:
+            blocked.add((r["ticker"], days))
+    conn.close()
+    return blocked
