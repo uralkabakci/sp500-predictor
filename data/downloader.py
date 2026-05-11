@@ -14,26 +14,8 @@ import yfinance as yf
 import os
 from datetime import datetime
 
-# All tickers
-TICKERS = [
-    # Original 10
-    "AAPL", "GOOGL", "MSFT", "NVDA", "META",
-    "AMZN", "TSLA", "AMD", "INTC", "NFLX",
-    # Tech / Semiconductors
-    "QCOM", "AVGO", "TXN", "MU", "AMAT",
-    "CRM", "ORCL", "CSCO", "IBM", "SNOW",
-    # Finance
-    "JPM", "BAC", "GS", "V", "MA",
-    "BLK", "MS", "C",
-    # Healthcare
-    "JNJ", "PFE", "ABBV", "MRK", "UNH", "LLY",
-    # Consumer / Retail
-    "COST", "WMT", "HD", "NKE", "MCD", "SBUX",
-    # Energy
-    "XOM", "CVX",
-    # Industrial / Other
-    "BA", "CAT", "DIS", "PYPL", "UBER", "ADBE", "NOW", "PANW", "TMO",
-]
+# Single source of truth: tickers.csv (loaded via core/tickers.py)
+from tickers import TICKERS
 
 CACHE_DIR       = "data_cache"
 PRICE_DIR       = "data_cache/prices"

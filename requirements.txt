@@ -11,5 +11,6 @@ pytrends
 pyarrow
 fastapi
 uvicorn[standard]
+jinja2
 apscheduler
 pandas_market_calendars

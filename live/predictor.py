@@ -7,7 +7,7 @@ _ROOT = os.path.join(_HERE, '..')
 _sys.path.insert(0, os.path.join(_ROOT, 'core'))
 
 MODELS_DIR = os.path.join(_ROOT, 'saved_models')
-PARAMS_DIR  = os.path.join(_ROOT, 'params_log')
+PARAMS_DIR = os.path.join(_ROOT, 'params_log')
 
 import glob
 import joblib
@@ -18,6 +18,7 @@ import numpy as np
 import data_processor as dp
 import model_utils  # noqa: F401
 from tickers import TICKERS as _ALL_TICKERS
+from tickers import DELISTED_PAIRS as _DELISTED_PAIRS
 
 warnings.filterwarnings("ignore")
 
@@ -31,7 +32,8 @@ MIN_PRECISION = 0.0
 TP_PCT = {10: 0.04, 15: 0.05, 20: 0.07}
 SL_PCT = {10: 0.02, 15: 0.02, 20: 0.02}
 
-TICKERS = _ALL_TICKERS
+TICKERS        = _ALL_TICKERS
+DELISTED_PAIRS = _DELISTED_PAIRS
 
 TARGET_DAYS = [10, 15, 20]
 
@@ -150,8 +152,12 @@ _live_ohlc_ref = {}  # shared ref so scheduler can reuse without second fetch
 
 def get_current_ohlc(tickers=None):
     """
-    Fetch latest 30-min bar OHLC in batches of 50.
-    Returns {ticker: {"open", "high", "low", "close"}}.
+    Fetch today's intraday data (60-min bars) in batches of 50, aggregated to a synthetic daily bar.
+    Returns {ticker: {"open", "high", "low", "close",
+                      "today_open", "today_high", "today_low"}}.
+    - "open/high/low/close": latest 60-min bar (matches refresh frequency, used for exit checks)
+    - "today_open/today_high/today_low": aggregated full-day-to-date (used for features)
+    - "close" (latest 60-min close) doubles as today's running daily close
     """
     import yfinance as yf
     import time as _time
@@ -162,24 +168,35 @@ def get_current_ohlc(tickers=None):
     for i in range(0, len(tickers), batch_size):
         batch = tickers[i:i + batch_size]
         try:
-            data = yf.download(batch, period="1d", interval="30m",
+            data = yf.download(batch, period="1d", interval="60m",
                                auto_adjust=True, progress=False, threads=False)
             if data.empty:
                 continue
             for t in batch:
                 try:
+                    opens   = data["Open"][t].dropna()
+                    highs   = data["High"][t].dropna()
+                    lows    = data["Low"][t].dropna()
+                    closes  = data["Close"][t].dropna()
+                    volumes = data["Volume"][t].dropna() if "Volume" in data else None
+                    if len(closes) == 0:
+                        continue
                     result[t] = {
-                        "open":  round(float(data["Open"][t].dropna().iloc[-1]),  4),
-                        "high":  round(float(data["High"][t].dropna().iloc[-1]),  4),
-                        "low":   round(float(data["Low"][t].dropna().iloc[-1]),   4),
-                        "close": round(float(data["Close"][t].dropna().iloc[-1]), 4),
+                        "open":         round(float(opens.iloc[-1]),  4),
+                        "high":         round(float(highs.iloc[-1]),  4),
+                        "low":          round(float(lows.iloc[-1]),   4),
+                        "close":        round(float(closes.iloc[-1]), 4),
+                        "today_open":   round(float(opens.iloc[0]),   4),
+                        "today_high":   round(float(highs.max()),     4),
+                        "today_low":    round(float(lows.min()),      4),
+                        "today_volume": int(volumes.sum()) if volumes is not None and len(volumes) > 0 else 0,
                     }
                 except Exception:
                     pass
         except Exception:
             pass
         if i + batch_size < len(tickers):
-            _time.sleep(1.0)
+            _time.sleep(4.0)
 
     return result
 
@@ -189,21 +206,34 @@ STOPLOSS_COOLDOWN = {10: 1, 15: 2, 20: 3}
 
 def get_latest_signals(log_fn=None, signal_fn=None, blocked=None):
     """
-    Returns list of dicts: {ticker, days, prob, entry_price, target_price, signal_date}
-    Uses today's latest data row. Runs for all TICKERS.
+    Returns list of signal dicts. Runs for all TICKERS.
     """
     import time
     signals = []
     total   = len(TICKERS)
 
-    blocked = blocked or set()
-
-    # Fetch 30-min OHLC for all tickers upfront
+    # Fetch 60-min OHLC for all tickers upfront
     if log_fn:
-        log_fn("INFO", "predictor", "Fetching live OHLC (30m) for all tickers...")
+        log_fn("INFO", "predictor", f"Fetching live OHLC (60m) for {total} tickers...")
     live_ohlc = get_current_ohlc(TICKERS)
     _live_ohlc_ref.clear()
     _live_ohlc_ref.update(live_ohlc)
+
+    # Fetch today's intraday for reference ETFs (SPY, GLD, sector ETFs) and
+    # set as override so sector_rel/spy_rel features use today's prices.
+    try:
+        import sector_data as sd
+        ref_etfs = set(["SPY", "GLD"]) | set(sd.TICKER_SECTOR.values())
+        ref_ohlc = get_current_ohlc(sorted(ref_etfs))
+        sd.set_today_override({etf: bar["close"] for etf, bar in ref_ohlc.items()})
+        if log_fn:
+            log_fn("INFO", "predictor",
+                   f"Reference ETFs intraday fetched ({len(ref_ohlc)}/{len(ref_etfs)})")
+    except Exception as e:
+        if log_fn:
+            log_fn("WARN", "predictor", f"Reference ETF override failed: {e}")
+
+    blocked = blocked or set()
 
     for i, ticker in enumerate(TICKERS, 1):
         try:
@@ -216,6 +246,23 @@ def get_latest_signals(log_fn=None, signal_fn=None, blocked=None):
             raw_df = dp.get_data(ticker)
             if raw_df is None or raw_df.empty:
                 continue
+
+            # Inject today's intraday-aggregated bar so features reflect "now",
+            # not yesterday's close. Without this, model predicts from yesterday's
+            # close while we enter at today's intraday → systematic mismatch.
+            bar = live_ohlc.get(ticker)
+            if bar:
+                today = pd.Timestamp.today().normalize()
+                if today not in raw_df.index:
+                    today_row = pd.DataFrame([{
+                        'Open':   bar['today_open'],
+                        'High':   bar['today_high'],
+                        'Low':    bar['today_low'],
+                        'Close':  bar['close'],
+                        'Volume': bar.get('today_volume', 0),
+                    }], index=[today])
+                    raw_df = pd.concat([raw_df, today_row])
+
             df = dp.create_full_feature_universe(raw_df, ticker=ticker)
             if df is None or df.empty:
                 continue
@@ -224,11 +271,12 @@ def get_latest_signals(log_fn=None, signal_fn=None, blocked=None):
             row        = df.loc[[last_date]]
 
             # Use live close as entry; fall back to last daily close if unavailable
-            bar = live_ohlc.get(ticker)
             entry_price = (bar["close"] if bar else None) or float(df['Close'].iloc[-1])
 
             for days in TARGET_DAYS:
                 if (ticker, days) in blocked:
+                    continue
+                if (ticker, days) in DELISTED_PAIRS:
                     continue
                 pkgs = _get_fold_packages(models, days, last_date)
                 if not pkgs:

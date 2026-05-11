@@ -1,8 +1,5 @@
 import sqlite3
 import os
-import sys as _sys
-_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
-
 from datetime import datetime
 import pandas_market_calendars as mcal
 
@@ -119,25 +116,34 @@ def upsert_signal(ticker, days, prob, entry_price, target_price, stop_loss_price
 
 def close_expired_signals(ohlc: dict):
     """
-    Called every 30 min during market hours.
+    Called every 60 min during market hours.
     ohlc: {ticker: {"open", "high", "low", "close"}}
 
     Rules (in priority order):
-    1. open >= target  → close at open  (gap up)
-    2. open <= stop    → close at open  (gap down)
-    3. high >= target  → close at target (intraday target hit)
-    4. low  <= stop    → close at stop   (intraday stop hit)
-    5. elapsed >= days → close at close  (expired)
+    1. open >= target                      → close at open   (gap up)
+    2. open <= stop  AND opening bar       → close at open   (gap down at market open)
+    3. high >= target                      → close at target (intraday target hit)
+    4. low  <= stop                        → close at stop   (always exit at stop price intraday)
+    5. elapsed >= days                     → close at close  (expired)
 
-    Signals created within the last 30 minutes are skipped — their creation
+    Opening bar = 9:30–10:00 ET (first 30-min bar of the day).
+    Intraday bars always exit at the exact stop price, not at open.
+
+    Signals created within the last 60 minutes are skipped — their creation
     bar's High/Low may predate the actual entry.
     """
     from datetime import timedelta
+    from zoneinfo import ZoneInfo
     conn       = get_conn()
     now_dt     = datetime.utcnow()
     now        = now_dt.isoformat()
     today      = now_dt.date()
-    cutoff     = (now_dt - timedelta(minutes=30)).isoformat()
+    cutoff     = (now_dt - timedelta(minutes=60)).isoformat()
+
+    now_et        = now_dt.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/New_York"))
+    from datetime import time as _time
+    is_opening_bar = _time(9, 30) <= now_et.time() < _time(10, 0)
+
     active = conn.execute("SELECT * FROM signals WHERE status='active'").fetchall()
 
     for sig in active:
@@ -165,9 +171,9 @@ def close_expired_signals(ohlc: dict):
 
         if bar:
             o, h, l, c = bar["open"], bar["high"], bar["low"], bar["close"]
-            if o >= target_price:
+            if is_opening_bar and o >= target_price:
                 exit_price, exit_reason = o, "target_hit"
-            elif stop_loss_price and o <= stop_loss_price:
+            elif is_opening_bar and stop_loss_price and o <= stop_loss_price:
                 exit_price, exit_reason = o, "stop_loss_hit"
             elif h >= target_price:
                 exit_price, exit_reason = target_price, "target_hit"

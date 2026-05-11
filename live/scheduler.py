@@ -1,11 +1,11 @@
 import os
 import sys
+from datetime import datetime, time as dtime
+from zoneinfo import ZoneInfo
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.join(_HERE, '..')
 sys.path.insert(0, os.path.join(_ROOT, 'core'))
-
-from datetime import datetime, time as dtime
-from zoneinfo import ZoneInfo
 
 _ET = ZoneInfo("America/New_York")
 
@@ -22,12 +22,9 @@ _NYSE_CAL = mcal.get_calendar("NYSE")
 # ── Trends refresh ────────────────────────────────────────────────────────────
 # Google Trends data is published weekly (Thursdays US ET).
 # We pull on Friday 09:00 UTC to ensure the latest week is available.
-TRENDS_DAY_OF_WEEK  = "fri"
-TRENDS_HOUR_UTC     = 9
-TRENDS_MINUTE_UTC   = 0
 
 # ── Price + signal refresh ────────────────────────────────────────────────────
-SIGNAL_INTERVAL_MINUTES = 30
+SIGNAL_INTERVAL_MINUTES = 60
 
 
 def _market_is_open() -> bool:
@@ -135,50 +132,177 @@ def refresh_price_cache():
         db.log_event("ERROR", "scheduler", f"Daily price cache failed: {e}")
 
 
-def refresh_market_data():
-    """Weekly: refresh price cache, Google Trends, sector/SPY/Gold, and fundamentals."""
-    db.log_event("INFO", "scheduler", "Weekly market data refresh started")
+def refresh_reference_etfs_daily():
+    """
+    Daily: incrementally update SPY, GLD, and all sector ETF parquet caches.
+    These are NOT in TICKERS so refresh_price_cache misses them. Without this,
+    the cached reference series can lag by days, breaking sector_rel/spy_rel
+    features in backtests (live has in-memory override but backtest does not).
+    """
+    import time
+    import yfinance as yf
+    import pandas as pd
+
+    db.log_event("INFO", "scheduler", "Daily reference ETF cache update started")
     try:
-        sys.path.insert(0, os.path.join(_ROOT, 'data'))
-        import downloader as dd
-        import predictor as pred
+        sys.path.insert(0, os.path.join(_ROOT, 'core'))
+        import sector_data as sd
 
-        # Price + Trends for all tickers
-        dd.download_all_tickers(force_refresh=False, include_trends=True)
-        db.log_event("INFO", "scheduler", "Price + Trends download done")
+        SECTOR_DIR = os.path.join(_ROOT, "data_cache", "sectors")
+        os.makedirs(SECTOR_DIR, exist_ok=True)
 
-        # Sector relative (SPY, Gold) — fiyat bazlı, haftalık yeterli
-        try:
-            import sector_data as sec
-            import data_processor as dp
-            for ticker in pred.TICKERS:
-                try:
-                    raw = dp.get_data(ticker)
-                    if raw is not None and not raw.empty:
-                        sec.merge_sector_relative(raw, ticker, windows=[14, 30])
-                        sec.merge_spy_relative(raw, windows=[14, 30])
-                        sec.merge_gold_spy(raw, windows=[14, 30])
-                except Exception:
-                    pass
-            db.log_event("INFO", "scheduler", "Sector/SPY/Gold refresh done")
-        except Exception as e:
-            db.log_event("WARN", "scheduler", f"Sector refresh partial error: {e}")
+        etfs   = sorted(set(["SPY", "GLD"]) | set(sd.TICKER_SECTOR.values()))
+        ok     = 0
+        errors = 0
 
-        # Fundamentals (EPS, revenue) — çeyrek bazlı, haftalık yeterli
-        try:
-            import earnings_data as ed
-            for ticker in pred.TICKERS:
-                try:
-                    ed.get_earnings_features(ticker)
-                except Exception:
-                    pass
-            db.log_event("INFO", "scheduler", "Fundamentals refresh done")
-        except Exception as e:
-            db.log_event("WARN", "scheduler", f"Fundamentals refresh partial error: {e}")
+        for etf in etfs:
+            cache_file = os.path.join(SECTOR_DIR, f"{etf}_sector.parquet")
+            try:
+                if os.path.exists(cache_file):
+                    df_cached   = pd.read_parquet(cache_file)
+                    last_date   = df_cached.index.max()
+                    fetch_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                else:
+                    df_cached   = None
+                    fetch_start = "2010-01-01"
 
-        db.log_event("INFO", "scheduler", "Weekly market data refresh complete")
+                new_data = yf.download(etf, start=fetch_start, interval="1d",
+                                       progress=False, auto_adjust=True)
+                if new_data.empty:
+                    if df_cached is None:
+                        errors += 1
+                    continue
+                if isinstance(new_data.columns, pd.MultiIndex):
+                    new_data.columns = new_data.columns.get_level_values(0)
+
+                # Don't .squeeze() — single-row Series collapses to scalar.
+                close = new_data["Close"]
+                if isinstance(close, pd.DataFrame):
+                    close = close.iloc[:, 0]
+                if not isinstance(close, pd.Series) or close.empty:
+                    continue
+                close.index = pd.to_datetime(close.index).normalize()
+                close.name  = "Close"
+                close_df    = close.to_frame()
+
+                if df_cached is not None:
+                    merged = pd.concat([df_cached, close_df[~close_df.index.isin(df_cached.index)]])
+                    merged.sort_index(inplace=True)
+                else:
+                    merged = close_df
+
+                merged.to_parquet(cache_file)
+                ok += 1
+            except Exception as e:
+                errors += 1
+                db.log_event("WARN", "scheduler", f"Reference ETF skip {etf}: {e}")
+
+            time.sleep(0.4)  # be gentle on yfinance
+
+        db.log_event("INFO", "scheduler",
+                     f"Daily reference ETF cache done — {ok}/{len(etfs)} ETFs updated, {errors} errors")
     except Exception as e:
-        db.log_event("ERROR", "scheduler", f"Weekly market data refresh failed: {e}")
+        db.log_event("ERROR", "scheduler", f"Daily reference ETF cache failed: {e}")
+
+
+def refresh_sector_daily():
+    """Daily: recompute sector/SPY/Gold relative metrics (local, no rate limit)."""
+    db.log_event("INFO", "scheduler", "Daily sector refresh started")
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, 'core'))
+        import sector_data as sec
+        import data_processor as dp
+        ok = 0
+        for ticker in predictor.TICKERS:
+            try:
+                raw = dp.get_data(ticker)
+                if raw is not None and not raw.empty:
+                    sec.merge_sector_relative(raw, ticker, windows=[14, 30])
+                    sec.merge_spy_relative(raw, windows=[14, 30])
+                    sec.merge_gold_spy(raw, windows=[14, 30])
+                    ok += 1
+            except Exception:
+                pass
+        db.log_event("INFO", "scheduler",
+                     f"Daily sector refresh done — {ok}/{len(predictor.TICKERS)} tickers")
+    except Exception as e:
+        db.log_event("ERROR", "scheduler", f"Daily sector refresh failed: {e}")
+
+
+def refresh_trends_daily():
+    """
+    Daily: refresh Google Trends for all tickers.
+    Rate-limit aware: retries failed tickers with exponential backoff until all succeed.
+    """
+    import time, random
+    db.log_event("INFO", "scheduler", "Daily trends refresh started")
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, 'core'))
+        import social_data as sd
+
+        tickers     = list(predictor.TICKERS)
+        pending     = list(tickers)
+        succeeded   = set()
+        max_passes  = 6
+        base_sleep  = 2.0   # seconds between OK requests
+        backoff     = 30.0  # initial backoff on rate-limit (seconds)
+
+        for pass_num in range(1, max_passes + 1):
+            if not pending:
+                break
+            db.log_event("INFO", "scheduler",
+                         f"Trends pass {pass_num}/{max_passes}: {len(pending)} tickers")
+            failed = []
+            for i, ticker in enumerate(pending, 1):
+                try:
+                    sd.get_google_trends(ticker, force_refresh=True)
+                    succeeded.add(ticker)
+                    time.sleep(base_sleep + random.random())  # jitter
+                except Exception as e:
+                    msg = str(e).lower()
+                    if "429" in msg or "too many" in msg or "rate" in msg:
+                        db.log_event("WARN", "scheduler",
+                                     f"Trends rate-limited on {ticker}; sleeping {backoff:.0f}s")
+                        time.sleep(backoff)
+                        backoff = min(backoff * 1.5, 600.0)  # cap 10 min
+                    failed.append(ticker)
+
+                if i % 50 == 0:
+                    db.log_event("INFO", "scheduler",
+                                 f"Trends pass {pass_num}: {i}/{len(pending)} processed, {len(failed)} failed so far")
+
+            pending = failed
+            if pending:
+                wait = backoff * 2
+                db.log_event("INFO", "scheduler",
+                             f"Trends pass {pass_num} done. Failed: {len(pending)}. Waiting {wait:.0f}s before retry")
+                time.sleep(wait)
+
+        if pending:
+            db.log_event("ERROR", "scheduler",
+                         f"Trends refresh INCOMPLETE: {len(pending)} tickers still failing. Sample: {pending[:10]}")
+        else:
+            db.log_event("INFO", "scheduler",
+                         f"Daily trends refresh complete — {len(succeeded)}/{len(tickers)} tickers")
+    except Exception as e:
+        db.log_event("ERROR", "scheduler", f"Daily trends refresh failed: {e}")
+
+
+def refresh_earnings_daily():
+    """Daily: update earnings/fundamentals data for all tickers after market close."""
+    db.log_event("INFO", "scheduler", "Daily earnings refresh started")
+    try:
+        import earnings_data as ed
+        errors = 0
+        for ticker in predictor.TICKERS:
+            try:
+                ed.get_earnings_features(ticker, force_refresh=True)
+            except Exception:
+                errors += 1
+        db.log_event("INFO", "scheduler",
+                     f"Daily earnings refresh done — {len(predictor.TICKERS) - errors}/{len(predictor.TICKERS)} tickers updated")
+    except Exception as e:
+        db.log_event("ERROR", "scheduler", f"Daily earnings refresh failed: {e}")
 
 
 _scheduler = None
@@ -205,15 +329,35 @@ def start():
         replace_existing=True,
     )
 
-    # Weekly Friday 09:00 UTC: Trends + Sector + Fundamentals
+    # Daily at 21:30 UTC: SPY/GLD/sector ETF cache update (used by sector_rel features)
     _scheduler.add_job(
-        refresh_market_data,
-        trigger=CronTrigger(
-            day_of_week=TRENDS_DAY_OF_WEEK,
-            hour=TRENDS_HOUR_UTC,
-            minute=TRENDS_MINUTE_UTC,
-        ),
-        id="market_data_refresh",
+        refresh_reference_etfs_daily,
+        trigger=CronTrigger(hour=21, minute=30),
+        id="reference_etfs_daily",
+        replace_existing=True,
+    )
+
+    # Daily at 22:00 UTC (01:00 TR): earnings/fundamentals refresh
+    _scheduler.add_job(
+        refresh_earnings_daily,
+        trigger=CronTrigger(hour=22, minute=0),
+        id="earnings_daily",
+        replace_existing=True,
+    )
+
+    # Daily at 23:00 UTC (02:00 TR): sector/SPY/Gold relative refresh (fast, local)
+    _scheduler.add_job(
+        refresh_sector_daily,
+        trigger=CronTrigger(hour=23, minute=0),
+        id="sector_daily",
+        replace_existing=True,
+    )
+
+    # Daily at 00:00 UTC (03:00 TR): Google Trends refresh (slow, rate-limit aware)
+    _scheduler.add_job(
+        refresh_trends_daily,
+        trigger=CronTrigger(hour=0, minute=0),
+        id="trends_daily",
         replace_existing=True,
     )
 

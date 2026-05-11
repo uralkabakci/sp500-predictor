@@ -501,8 +501,7 @@
       if (!stats.error) {
         document.getElementById('bt-stats').innerHTML =
           pill('Trades', stats.total_trades) +
-          pill('Win Rate', stats.win_rate_pct + '%', stats.win_rate_pct >= 60 ? 'green' : 'orange') +
-          pill('Total P&L', '$' + stats.total_pnl, stats.total_pnl >= 0 ? 'green' : 'red');
+          pill('Win Rate', stats.win_rate_pct + '%', stats.win_rate_pct >= 60 ? 'green' : 'orange');
       }
     }
 

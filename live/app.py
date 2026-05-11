@@ -2,7 +2,10 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 
 import sys as _sys
-_sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'core'))
+_HERE_FILE = os.path.dirname(os.path.abspath(__file__))
+_ROOT_DIR  = os.path.abspath(os.path.join(_HERE_FILE, '..'))
+_sys.path.insert(0, os.path.join(_ROOT_DIR, 'core'))
+os.chdir(_ROOT_DIR)   # so data_processor & friends find data_cache/, saved_models/
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -16,6 +19,7 @@ import scheduler as sched
 import predictor
 
 BASE_DIR = os.path.dirname(__file__)
+ROOT_DIR = os.path.abspath(os.path.join(BASE_DIR, '..'))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,9 +39,11 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
+_INDEX_HTML = open(os.path.join(BASE_DIR, "templates", "index.html"), encoding="utf-8").read()
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return HTMLResponse(content=_INDEX_HTML)
 
 
 # ── API: Signals ──────────────────────────────────────────────────────────────
@@ -117,7 +123,7 @@ async def api_backtest(
     period: str = Query(default="all"),
 ):
     """Return trade records from signal_analysis_trades.csv."""
-    csv_path = os.path.join(BASE_DIR, "signal_analysis_trades.csv")
+    csv_path = os.path.join(ROOT_DIR, "signal_analysis_trades.csv")
     if not os.path.exists(csv_path):
         return JSONResponse(
             {"error": "Backtest data not found. Run signal_analysis.py first."},
@@ -146,7 +152,7 @@ async def api_backtest(
 @app.get("/api/backtest/stats")
 async def api_backtest_stats():
     """Return aggregate stats from signal_analysis_trades.csv."""
-    csv_path = os.path.join(BASE_DIR, "signal_analysis_trades.csv")
+    csv_path = os.path.join(ROOT_DIR, "signal_analysis_trades.csv")
     if not os.path.exists(csv_path):
         return JSONResponse({"error": "Backtest data not found."}, status_code=404)
     try:
@@ -184,7 +190,7 @@ async def api_winrates():
 @app.get("/api/backtest/winrates")
 async def api_backtest_winrates():
     """Win rates from signal_analysis_trades.csv grouped by ticker."""
-    csv_path = os.path.join(BASE_DIR, "signal_analysis_trades.csv")
+    csv_path = os.path.join(ROOT_DIR, "signal_analysis_trades.csv")
     if not os.path.exists(csv_path):
         return JSONResponse({"error": "Backtest data not found."}, status_code=404)
     try:

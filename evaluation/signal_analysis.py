@@ -33,9 +33,11 @@ MIN_PRECISION = 0.0
 TP_PCT = {10: 0.04, 15: 0.05, 20: 0.07}
 SL_PCT = {10: 0.02, 15: 0.02, 20: 0.02}
 
+STOPLOSS_COOLDOWN = {10: 1, 15: 2, 20: 3}  # calendar days after SL hit
+
 TARGET_DAYS = [10, 15, 20]
 
-TRADES_CSV = os.path.join(_ROOT, "live", "signal_analysis_trades.csv")
+TRADES_CSV = "signal_analysis_trades.csv"
 
 # ============================================================================
 
@@ -141,9 +143,6 @@ def _check_outcome(df, signal_idx, days, tp_pct, sl_pct):
     stop   = entry * (1 - sl_pct)
     future = df.iloc[signal_idx + 1 : signal_idx + 1 + days]
 
-    if len(future) == 0:
-        return None, None, None
-
     for date, bar in future.iterrows():
         hit_tp = float(bar['High']) >= target
         hit_sl = float(bar['Low'])  <= stop
@@ -155,6 +154,10 @@ def _check_outcome(df, signal_idx, days, tp_pct, sl_pct):
         if hit_sl:
             return date, round(stop, 4), "stop_loss_hit"
 
+    # No early hit. Need a FULL horizon of forward data to call it expired.
+    # Otherwise the signal is still pending (right-censoring guard).
+    if len(future) < days:
+        return None, None, None
     last = future.iloc[-1]
     return future.index[-1], round(float(last['Close']), 4), "expired"
 
@@ -177,7 +180,7 @@ def _worker(args):
     start = pd.Timestamp(start_str)
     end   = pd.Timestamp(end_str) if end_str else pd.Timestamp.today()
 
-    agg      = {d: {'signals': 0, 'hits': 0, 'wins': 0, 'pending': 0} for d in TARGET_DAYS}
+    agg      = {d: {'signals': 0, 'hits': 0, 'pending': 0} for d in TARGET_DAYS}
     baseline = {d: {'total': 0, 'hits': 0} for d in TARGET_DAYS}
     trades   = []
 
@@ -192,7 +195,7 @@ def _worker(args):
         df = dp.create_full_feature_universe(raw_df, ticker=ticker)
         if df is None or df.empty:
             return ticker, trades, agg, baseline
-        df = df[df.index >= start - pd.Timedelta(days=60)]
+        df = df[df.index >= start - pd.Timedelta(days=120)]
 
         sim_dates = df.index[(df.index >= start) & (df.index <= end)]
 
@@ -213,10 +216,16 @@ def _worker(args):
             if days not in models:
                 continue
 
-            active_signal_end = None
+            active_signal_end = None  # track open signal's exit date
+            cooldown_until    = None  # block new signals after stop loss
+            cooldown_n        = pd.Timedelta(days=STOPLOSS_COOLDOWN[days])
 
             for date in sim_dates:
+                # Skip if a signal is still active
                 if active_signal_end is not None and date <= active_signal_end:
+                    continue
+                # Skip if we're in stop-loss cooldown
+                if cooldown_until is not None and date <= cooldown_until:
                     continue
 
                 pkgs = _get_fold_packages(models, days, date)
@@ -232,7 +241,13 @@ def _worker(args):
                     df, signal_idx, days, tp_pct, sl_pct
                 )
 
+                # Mark signal as active until it closes
                 active_signal_end = exit_date if exit_date is not None else sim_dates[-1]
+                # If stop loss hit, enter cooldown
+                if exit_reason == 'stop_loss_hit' and exit_date is not None:
+                    cooldown_until = exit_date + cooldown_n
+                else:
+                    cooldown_until = None
 
                 agg[days]['signals'] += 1
                 if exit_reason is None:
@@ -241,8 +256,6 @@ def _worker(args):
                     agg[days]['hits'] += 1
 
                 if exit_reason is not None:
-                    if exit_price > entry_price:
-                        agg[days]['wins'] += 1
                     pnl_pct = round((exit_price - entry_price) / entry_price * 100, 4)
                     trades.append({
                         'signal_date':  date.strftime('%Y-%m-%d'),
@@ -290,7 +303,7 @@ def run_analysis(save_csv=True, workers=None):
     ]
 
     all_trades = []
-    results    = {t: {d: {'signals': 0, 'hits': 0, 'wins': 0, 'pending': 0} for d in TARGET_DAYS} for t in tickers}
+    results    = {t: {d: {'signals': 0, 'hits': 0, 'pending': 0} for d in TARGET_DAYS} for t in tickers}
     baselines  = {t: {d: {'total': 0, 'hits': 0} for d in TARGET_DAYS} for t in tickers}
     done       = 0
 
@@ -316,93 +329,88 @@ def run_analysis(save_csv=True, workers=None):
 
 
 def _print_report(results, baselines, tickers):
-    print("=" * 136)
+    W = 7  # column width per horizon block
+    # Header: Ticker | [10d: Sig  Hit%  Base%] | [15d: ...] | [20d: ...] | Total Hit%  Base%
+    print("=" * 120)
     print(f"SIGNAL ACCURACY vs RANDOM BASELINE  |  K={ENSEMBLE_K}  |  TP={TP_PCT}  |  SL={SL_PCT}")
     print(f"Period: {TEST_START_DATE} → {TEST_END_DATE or 'today'}")
-    print("=" * 136)
+    print("=" * 120)
 
     header = f"{'Ticker':<8}"
     for d in TARGET_DAYS:
-        header += f"  {'─── ' + str(d) + 'd ───':>29}"
-    header += f"  {'── Total ──':>29}"
+        header += f"  {'─── ' + str(d) + 'd ───':>22}"
+    header += f"  {'── Total ──':>22}"
     print(header)
 
     subhdr = f"{'':8}"
     for d in TARGET_DAYS:
-        subhdr += f"  {'Signals':>7}  {'Hit%':>6}  {'Win%':>6}  {'Base%':>6}"
-    subhdr += f"  {'Signals':>7}  {'Hit%':>6}  {'Win%':>6}  {'Base%':>6}"
+        subhdr += f"  {'Signals':>7}  {'Hit%':>6}  {'Base%':>6}"
+    subhdr += f"  {'Signals':>7}  {'Hit%':>6}  {'Base%':>6}"
     print(subhdr)
-    print("-" * 136)
+    print("-" * 120)
 
     ticker_rows = []
     for ticker in tickers:
         total_sig  = sum(results[ticker][d]['signals'] for d in TARGET_DAYS)
         total_hits = sum(results[ticker][d]['hits']    for d in TARGET_DAYS)
-        total_wins = sum(results[ticker][d]['wins']    for d in TARGET_DAYS)
         total_pend = sum(results[ticker][d]['pending'] for d in TARGET_DAYS)
         evaluated  = total_sig - total_pend
-        hit_pct    = (total_hits / evaluated * 100) if evaluated > 0 else 0.0
-        win_pct    = (total_wins / evaluated * 100) if evaluated > 0 else 0.0
+        total_pct  = (total_hits / evaluated * 100) if evaluated > 0 else 0.0
         bl_tot     = sum(baselines[ticker][d]['total'] for d in TARGET_DAYS)
         bl_hits    = sum(baselines[ticker][d]['hits']  for d in TARGET_DAYS)
         bl_pct     = (bl_hits / bl_tot * 100) if bl_tot > 0 else 0.0
-        ticker_rows.append((ticker, total_sig, total_hits, total_wins, total_pend, evaluated, hit_pct, win_pct, bl_pct))
+        ticker_rows.append((ticker, total_sig, total_hits, total_pend, evaluated, total_pct, bl_pct))
     ticker_rows.sort(key=lambda x: x[1], reverse=True)
 
     grand_sig  = {d: 0 for d in TARGET_DAYS}
     grand_hits = {d: 0 for d in TARGET_DAYS}
-    grand_wins = {d: 0 for d in TARGET_DAYS}
     grand_pend = {d: 0 for d in TARGET_DAYS}
     grand_bl_t = {d: 0 for d in TARGET_DAYS}
     grand_bl_h = {d: 0 for d in TARGET_DAYS}
 
-    for ticker, total_sig, total_hits, total_wins, total_pend, evaluated, hit_pct, win_pct, bl_pct in ticker_rows:
+    for ticker, total_sig, total_hits, total_pend, evaluated, total_pct, bl_pct in ticker_rows:
         if total_sig == 0:
             continue
         row = f"{ticker:<8}"
         for d in TARGET_DAYS:
             sig  = results[ticker][d]['signals']
             hits = results[ticker][d]['hits']
-            wins = results[ticker][d]['wins']
             pend = results[ticker][d]['pending']
             evl  = sig - pend
-            hpct = (hits / evl * 100) if evl > 0 else 0.0
-            wpct = (wins / evl * 100) if evl > 0 else 0.0
+            pct  = (hits / evl * 100) if evl > 0 else 0.0
             blt  = baselines[ticker][d]['total']
             blh  = baselines[ticker][d]['hits']
             bpct = (blh / blt * 100) if blt > 0 else 0.0
-            row += f"  {sig:>7}  {hpct:>5.1f}%  {wpct:>5.1f}%  {bpct:>5.1f}%"
+            edge = pct - bpct
+            edge_str = f"({edge:+.1f})" if evl > 0 else ""
+            row += f"  {sig:>7}  {pct:>5.1f}%  {bpct:>5.1f}%"
             grand_sig[d]  += sig
             grand_hits[d] += hits
-            grand_wins[d] += wins
             grand_pend[d] += pend
             grand_bl_t[d] += blt
             grand_bl_h[d] += blh
-        flag = " ⚠" if evaluated > 0 and hit_pct < 40 else ""
-        row += f"  {total_sig:>7}  {hit_pct:>5.1f}%  {win_pct:>5.1f}%  {bl_pct:>5.1f}%{flag}"
+        flag = " ⚠" if evaluated > 0 and total_pct < 40 else ""
+        row += f"  {total_sig:>7}  {total_pct:>5.1f}%  {bl_pct:>5.1f}%{flag}"
         print(row)
 
-    print("-" * 136)
+    print("-" * 120)
     total_row = f"{'TOTAL':<8}"
-    g_sig = g_hits = g_wins = g_pend = 0
-    g_blt = g_blh = 0
+    g_sig = g_hits = g_pend = 0
+    g_blt = g_blh  = 0
     for d in TARGET_DAYS:
         evl  = grand_sig[d] - grand_pend[d]
-        hpct = (grand_hits[d] / evl * 100) if evl > 0 else 0.0
-        wpct = (grand_wins[d] / evl * 100) if evl > 0 else 0.0
+        pct  = (grand_hits[d] / evl * 100) if evl > 0 else 0.0
         bpct = (grand_bl_h[d] / grand_bl_t[d] * 100) if grand_bl_t[d] > 0 else 0.0
-        total_row += f"  {grand_sig[d]:>7}  {hpct:>5.1f}%  {wpct:>5.1f}%  {bpct:>5.1f}%"
-        g_sig += grand_sig[d]; g_hits += grand_hits[d]; g_wins += grand_wins[d]; g_pend += grand_pend[d]
-        g_blt += grand_bl_t[d]; g_blh += grand_bl_h[d]
+        total_row += f"  {grand_sig[d]:>7}  {pct:>5.1f}%  {bpct:>5.1f}%"
+        g_sig  += grand_sig[d]; g_hits += grand_hits[d]; g_pend += grand_pend[d]
+        g_blt  += grand_bl_t[d]; g_blh += grand_bl_h[d]
     g_evl  = g_sig - g_pend
-    g_hpct = (g_hits / g_evl * 100) if g_evl > 0 else 0.0
-    g_wpct = (g_wins / g_evl * 100) if g_evl > 0 else 0.0
+    g_pct  = (g_hits / g_evl * 100) if g_evl > 0 else 0.0
     g_bpct = (g_blh  / g_blt  * 100) if g_blt  > 0 else 0.0
-    total_row += f"  {g_sig:>7}  {g_hpct:>5.1f}%  {g_wpct:>5.1f}%  {g_bpct:>5.1f}%"
+    total_row += f"  {g_sig:>7}  {g_pct:>5.1f}%  {g_bpct:>5.1f}%"
     print(total_row)
-    print("=" * 136)
-    print(f"  Hit%  = % of signals where target price was reached")
-    print(f"  Win%  = % of signals where exit_price > entry_price (profit > 0)")
+    print("=" * 120)
+    print(f"  Hit%  = target_hit rate on model signal days")
     print(f"  Base% = target_hit rate if buying every trading day (random baseline)")
     print(f"  ⚠     = hit rate < 40%")
 

@@ -379,3 +379,4 @@ th.sortable.sort-desc::after { content: ' ▼'; opacity: 1; color: var(--accent)
 .log-info  { color: var(--muted); }
 .log-warn  { color: var(--orange); }
 .log-error { color: var(--red); }
+
