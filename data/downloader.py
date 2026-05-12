@@ -48,7 +48,7 @@ def download_and_cache_data(ticker, force_refresh=False):
             last_date = df_cached.index.max()
             today = pd.Timestamp.today().normalize()
 
-            if last_date >= today - pd.Timedelta(days=1):
+            if last_date >= today:
                 print(f"[CACHE] {ticker} already up to date ({last_date.date()})")
                 return df_cached
 

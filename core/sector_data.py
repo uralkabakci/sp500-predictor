@@ -156,6 +156,29 @@ TICKER_SECTOR = {
 }
 
 
+_TODAY_OVERRIDE: dict = {}  # {etf: today_close} — set by predictor for live consistency
+
+
+def set_today_override(overrides: dict) -> None:
+    """Inject today's intraday close for reference ETFs (SPY, GLD, XL*).
+
+    Used by the live predictor so sector_rel/spy_rel/gold_spy features computed
+    on today's bar use today's reference prices, not yesterday's.
+    """
+    _TODAY_OVERRIDE.clear()
+    _TODAY_OVERRIDE.update(overrides)
+
+
+def _apply_today_override(etf: str, close: pd.Series) -> pd.Series:
+    if etf not in _TODAY_OVERRIDE or close.empty:
+        return close
+    today = pd.Timestamp.today().normalize()
+    if today in close.index:
+        return close
+    today_close = pd.Series([_TODAY_OVERRIDE[etf]], index=[today], name="Close")
+    return pd.concat([close, today_close])
+
+
 def get_sector_etf(etf: str, force_refresh: bool = False) -> pd.Series:
     cache_file = os.path.join(CACHE_DIR, f"{etf}_sector.parquet")
 
@@ -164,7 +187,7 @@ def get_sector_etf(etf: str, force_refresh: bool = False) -> pd.Series:
             df = pd.read_parquet(cache_file)
             last = df.index.max()
             if last >= pd.Timestamp.today().normalize() - pd.Timedelta(days=5):
-                return df["Close"]
+                return _apply_today_override(etf, df["Close"])
         except Exception:
             pass
 
@@ -179,7 +202,7 @@ def get_sector_etf(etf: str, force_refresh: bool = False) -> pd.Series:
             os.makedirs(CACHE_DIR, exist_ok=True)
             close.to_frame().to_parquet(cache_file)
             print(f"[SECTOR] {etf} downloaded ({len(close)} rows).")
-            return close
+            return _apply_today_override(etf, close)
         except Exception as e:
             if attempt < 2:
                 time.sleep(5)
